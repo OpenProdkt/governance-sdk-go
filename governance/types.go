@@ -93,10 +93,11 @@ type MCPTransport struct {
 }
 
 type TransportContext struct {
-	Kind string         `json:"kind"`
-	HTTP *HTTPTransport `json:"http,omitempty"`
-	GRPC *GRPCTransport `json:"grpc,omitempty"`
-	MCP  *MCPTransport  `json:"mcp,omitempty"`
+	PayloadDigest string         `json:"payload_digest,omitempty"`
+	Kind          string         `json:"kind"`
+	HTTP          *HTTPTransport `json:"http,omitempty"`
+	GRPC          *GRPCTransport `json:"grpc,omitempty"`
+	MCP           *MCPTransport  `json:"mcp,omitempty"`
 }
 
 type EvaluateRequest struct {
@@ -126,6 +127,9 @@ type DecisionResponse struct {
 	ApprovalStatus    string     `json:"approvalStatus,omitempty"`
 	ApprovalExpiresAt *time.Time `json:"approval_expires_at,omitempty"`
 	GrantExpiresAt    *time.Time `json:"grant_expires_at,omitempty"`
+	GrantTTLSeconds   int        `json:"grant_ttl_seconds,omitempty"`
+	RetryAfterSeconds int        `json:"retry_after_seconds,omitempty"`
+	StatusURL         string     `json:"status_url,omitempty"`
 }
 
 type RequestCodeRequest struct {
@@ -166,8 +170,15 @@ type CreateAPIKeyRequest struct {
 	Scopes []string `json:"scopes"`
 }
 
+// Asset types accepted by CreateAssetRequest.Type. An empty value means service_operation.
+const (
+	AssetTypeServiceOperation = "service_operation"
+	AssetTypeMCPTool          = "mcp_tool"
+)
+
 type CreateAssetRequest struct {
 	Name          string                 `json:"name"`
+	Type          string                 `json:"type,omitempty"`
 	AssetKey      string                 `json:"assetKey,omitempty"`
 	Environment   string                 `json:"environment"`
 	Definition    map[string]interface{} `json:"definition,omitempty"`

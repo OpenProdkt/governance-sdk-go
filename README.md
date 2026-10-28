@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-go get github.com/OpenProdkt/governance-sdk-go@v0.6.0
+go get github.com/OpenProdkt/governance-sdk-go@v0.7.0
 ```
 
 ## Supports
@@ -15,7 +15,7 @@ The Go client currently covers:
 `Bootstrap` uses the client's bearer credential and requires an internal admin token with the `org:bootstrap` scope. A tenant API key cannot bootstrap organizations.
 - Governance: `Authorize`, `AuthorizeAndWait`, `HTTPMiddleware`, `PlaygroundCheck`, `ListDecisionExplorer`, `ListAuditEvents`, `Usage`
 - Resources: `ListAssets`, `CreateAsset`, `UpdateAsset`, `DeleteAsset`, `IngestAssetDiscovery`, `ListAssetDiscoveries`, `DeleteAssetDiscovery`, `ListGroups`, `CreateGroup`, `UpdateGroup`, `DeleteGroup`, `ListPolicies`, `CreatePolicy`, `DeletePolicy`
-- Operations: `ListAPIKeys`, `CreateAPIKey`, `RotateAPIKey`, `RevokeAPIKey`, `ListApprovals`, `ApproveApproval`, `RejectApproval`, `InviteMember`, `UploadEntitlementArtifact`
+- Operations: `ListAPIKeys`, `CreateAPIKey`, `RotateAPIKey`, `RevokeAPIKey`, `ListApprovals`, `RejectApproval` (requires a user JWT), `InviteMember`, `UploadEntitlementArtifact`
 
 ## Usage
 

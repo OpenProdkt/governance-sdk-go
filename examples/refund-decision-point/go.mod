@@ -2,7 +2,7 @@ module github.com/OpenProdkt/governance-sdk-go/examples/refund-decision-point
 
 go 1.22
 
-require github.com/OpenProdkt/governance-sdk-go v0.6.0
+require github.com/OpenProdkt/governance-sdk-go v0.7.0
 
 require (
 	golang.org/x/net v0.28.0 // indirect
@@ -12,3 +12,4 @@ require (
 	google.golang.org/grpc v1.67.1 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )
+

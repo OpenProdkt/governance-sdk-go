@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -115,6 +116,15 @@ func NewClient(baseURL, apiKey string, timeout time.Duration) *Client {
 			Timeout: timeout,
 		},
 	}
+}
+
+// NewClientWithTransport is NewClient with a caller-supplied transport. Use a transport with keep-alives
+// disabled when the server can restart. A pooled connection to a restarted server fails the next POST, and
+// POST is not retried.
+func NewClientWithTransport(baseURL, apiKey string, timeout time.Duration, transport http.RoundTripper) *Client {
+	client := NewClient(baseURL, apiKey, timeout)
+	client.httpClient.Transport = transport
+	return client
 }
 
 // NewClientWithDefaultAssetIdentity configures the stable identity used when an
@@ -652,12 +662,6 @@ func normalizeApprovalWaitOptions(options ApprovalWaitOptions, maxTimeout time.D
 	return options, nil
 }
 
-func (c *Client) ApproveApproval(ctx context.Context, approvalID string, req ResolveApprovalRequest) (Approval, error) {
-	var resp Approval
-	err := c.doJSON(ctx, http.MethodPost, "/v1/approvals/"+url.PathEscape(approvalID)+"/approve", req, &resp, true)
-	return resp, err
-}
-
 func (c *Client) RejectApproval(ctx context.Context, approvalID string, req ResolveApprovalRequest) (Approval, error) {
 	var resp Approval
 	err := c.doJSON(ctx, http.MethodPost, "/v1/approvals/"+url.PathEscape(approvalID)+"/reject", req, &resp, true)
@@ -686,6 +690,88 @@ func (c *Client) ListAuditEvents(ctx context.Context, query AuditQuery) (AuditPa
 	var resp AuditPage
 	err := c.doJSON(ctx, http.MethodGet, "/v1/audit?"+values.Encode(), nil, &resp, true)
 	return resp, err
+}
+
+// OperationOutcomeRequest reports what happened after an operation received ALLOW.
+// Status is "succeeded", "failed", or "unknown". Use "unknown" whenever execution
+// may have happened but the result is not known.
+type OperationOutcomeRequest struct {
+	OperationID string    `json:"operation_id"`
+	Status      string    `json:"status"`
+	CompletedAt time.Time `json:"completed_at"`
+	ResultHash  string    `json:"result_hash,omitempty"`
+}
+
+type OperationOutcomeResponse struct {
+	OperationID string `json:"operation_id"`
+	Status      string `json:"status"`
+	Recorded    bool   `json:"recorded"`
+}
+
+type OperationStatus struct {
+	OperationID         string                   `json:"operation_id"`
+	DecisionID          string                   `json:"decision_id,omitempty"`
+	AssetID             string                   `json:"asset_id,omitempty"`
+	TransportKind       string                   `json:"transport_kind,omitempty"`
+	ApprovalStatus      string                   `json:"approval_status,omitempty"`
+	ApprovalExpiresAt   *time.Time               `json:"approval_expires_at,omitempty"`
+	GrantExpiresAt      *time.Time               `json:"grant_expires_at,omitempty"`
+	RedemptionExpiresAt *time.Time               `json:"redemption_expires_at,omitempty"`
+	ConsumedAt          *time.Time               `json:"consumed_at,omitempty"`
+	RevokedAt           *time.Time               `json:"revoked_at,omitempty"`
+	AllowedAt           *time.Time               `json:"allowed_at,omitempty"`
+	Outcome             *OperationOutcomeRequest `json:"outcome,omitempty"`
+	Reason              string                   `json:"reason"`
+	NextAction          string                   `json:"next_action"`
+}
+
+func (c *Client) GetOperationStatus(ctx context.Context, operationID string, principal *PrincipalContext) (OperationStatus, error) {
+	if !regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`).MatchString(operationID) {
+		return OperationStatus{}, &InvalidAuthorizationInputError{Message: "invalid operation_id"}
+	}
+	credential, err := c.authorizationCredential(principal)
+	if err != nil {
+		return OperationStatus{}, &InvalidAuthorizationInputError{Message: err.Error()}
+	}
+	var response OperationStatus
+	err = c.doJSONWithCredential(ctx, http.MethodGet, "/v1/proxy/operations/"+url.PathEscape(operationID), nil, &response, credential, true)
+	return response, err
+}
+
+// OperationOutcomeRejectedError is a definitive refusal from /v1/proxy/outcomes
+// (a 4xx other than 408 and 429). Retrying the same report cannot succeed.
+type OperationOutcomeRejectedError struct {
+	HTTPStatus int
+}
+
+func (e *OperationOutcomeRejectedError) Error() string {
+	return fmt.Sprintf("operation outcome rejected with status %d", e.HTTPStatus)
+}
+
+// ReportOperationOutcome posts an execution outcome to /v1/proxy/outcomes. The
+// principal must be the one that received ALLOW for the operation. Any error that
+// is not an OperationOutcomeRejectedError may be transient and can be retried.
+func (c *Client) ReportOperationOutcome(ctx context.Context, request OperationOutcomeRequest, principal *PrincipalContext) (OperationOutcomeResponse, error) {
+	if principal == nil {
+		return OperationOutcomeResponse{}, &InvalidAuthorizationInputError{Message: "principal context is required for outcome reporting"}
+	}
+	credential, err := c.authorizationCredential(principal)
+	if err != nil {
+		return OperationOutcomeResponse{}, &InvalidAuthorizationInputError{Message: err.Error()}
+	}
+	var response OperationOutcomeResponse
+	if err := c.doJSONWithCredential(ctx, http.MethodPost, "/v1/proxy/outcomes", request, &response, credential, true); err != nil {
+		var responseErr *httpResponseError
+		if errors.As(err, &responseErr) && isDefinitiveRejection(responseErr.StatusCode) {
+			return OperationOutcomeResponse{}, &OperationOutcomeRejectedError{HTTPStatus: responseErr.StatusCode}
+		}
+		return OperationOutcomeResponse{}, err
+	}
+	return response, nil
+}
+
+func isDefinitiveRejection(status int) bool {
+	return status >= 400 && status < 500 && status != http.StatusRequestTimeout && status != http.StatusTooManyRequests
 }
 
 func (c *Client) Usage(ctx context.Context) (map[string]any, error) {
