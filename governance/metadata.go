@@ -1,6 +1,7 @@
 package governance
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -108,7 +109,9 @@ func SanitizeMetadata(metadata any) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("serialize metadata: %w", err)
 	}
 	var normalized map[string]interface{}
-	if err := json.Unmarshal(encodedInput, &normalized); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(encodedInput))
+	decoder.UseNumber()
+	if err := decoder.Decode(&normalized); err != nil {
 		return nil, fmt.Errorf("metadata must serialize to a JSON object: %w", err)
 	}
 	if normalized == nil {
@@ -145,7 +148,7 @@ func sanitizeMetadataMap(metadata map[string]interface{}) (map[string]interface{
 		if _, known := knownStringMetadataKeys[trimmedKey]; known {
 			sanitized, err = sanitizeStringValue(trimmedKey, value)
 		} else {
-			sanitized, err = sanitizeMetadataValue(value)
+			sanitized, err = sanitizeMetadataValueAtDepth(value, 1)
 		}
 		if err != nil {
 			return nil, err
@@ -165,13 +168,25 @@ func sanitizeMetadataMap(metadata map[string]interface{}) (map[string]interface{
 }
 
 func sanitizeMetadataValue(value interface{}) (interface{}, error) {
+	return sanitizeMetadataValueAtDepth(value, 0)
+}
+
+func sanitizeMetadataValueAtDepth(value interface{}, depth int) (interface{}, error) {
+	if depth > 64 {
+		return nil, fmt.Errorf("metadata nesting exceeds 64 levels")
+	}
 	switch typed := value.(type) {
-	case nil, bool, string, int, int32, int64, float32, float64:
+	case nil, bool, string:
+		return typed, nil
+	case json.Number:
+		if err := validateNumber(typed); err != nil {
+			return nil, err
+		}
 		return typed, nil
 	case []interface{}:
 		out := make([]interface{}, 0, len(typed))
 		for _, item := range typed {
-			sanitized, err := sanitizeMetadataValue(item)
+			sanitized, err := sanitizeMetadataValueAtDepth(item, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -188,7 +203,7 @@ func sanitizeMetadataValue(value interface{}) (interface{}, error) {
 			if _, forbidden := forbiddenMetadataKeys[trimmedKey]; forbidden {
 				return nil, fmt.Errorf("metadata key %q is forbidden", trimmedKey)
 			}
-			sanitized, err := sanitizeMetadataValue(nested)
+			sanitized, err := sanitizeMetadataValueAtDepth(nested, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -238,18 +253,9 @@ func sanitizeStringValue(key string, value interface{}) (interface{}, error) {
 }
 
 func asInt(v interface{}) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int32:
-		return int(n), true
-	case int64:
-		return int(n), true
-	case float32:
-		return int(n), true
-	case float64:
-		return int(n), true
-	default:
+	data, err := json.Marshal(v)
+	if err != nil {
 		return 0, false
 	}
+	return numberInt(json.Number(data))
 }

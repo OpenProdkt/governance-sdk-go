@@ -2,8 +2,10 @@
 
 ## Install
 
+Verify that the matching release has been published before installing this version.
+
 ```bash
-go get github.com/OpenProdkt/governance-sdk-go@v0.7.0
+go get github.com/OpenProdkt/governance-sdk-go@v0.8.0
 ```
 
 ## Supports

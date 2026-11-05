@@ -105,7 +105,7 @@ func TestSanitizeMetadataAcceptsStructsThroughJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sanitize struct metadata: %v", err)
 	}
-	if metadata["operation"] != "refund" || metadata["amount"] != float64(42) {
+	if metadata["operation"] != "refund" || metadata["amount"] != json.Number("42") {
 		t.Fatalf("unexpected struct metadata: %+v", metadata)
 	}
 }

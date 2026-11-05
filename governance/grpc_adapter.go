@@ -289,7 +289,7 @@ func grpcErrorForOutcome(outcome string) error {
 		code = codes.AlreadyExists
 	case "quota_exceeded":
 		code = codes.ResourceExhausted
-	case "invalid_request":
+	case "invalid_request", "invalid_context":
 		code = codes.InvalidArgument
 	case "configuration_error":
 		code = codes.FailedPrecondition

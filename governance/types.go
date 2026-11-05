@@ -255,6 +255,7 @@ type UpdateGroupRequest struct {
 }
 
 type CreatePolicyRequest struct {
+	Status    PolicyStatus           `json:"status,omitempty"`
 	AssetID   string                 `json:"assetId"`
 	Name      string                 `json:"name"`
 	Condition map[string]interface{} `json:"condition"`
@@ -265,7 +266,17 @@ type ResolveApprovalRequest struct {
 	Comment string `json:"comment,omitempty"`
 }
 
+// PolicyStatus is the explicit management lifecycle, independent of activation.
+type PolicyStatus string
+
+const (
+	PolicyDraft     PolicyStatus = "draft"
+	PolicyPublished PolicyStatus = "published"
+	PolicyArchived  PolicyStatus = "archived"
+)
+
 type Policy struct {
+	Status         PolicyStatus           `json:"status"`
 	ID             string                 `json:"id"`
 	OrganizationID string                 `json:"organizationId"`
 	AssetID        string                 `json:"assetId"`

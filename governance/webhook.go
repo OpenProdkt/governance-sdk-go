@@ -1,6 +1,7 @@
 package governance
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -121,7 +122,12 @@ func VerifyApprovalWebhookWithSecrets(rawBody []byte, headers http.Header, secre
 		return ApprovalWebhookEvent{}, fmt.Errorf("webhook signature is invalid")
 	}
 	var event ApprovalWebhookEvent
-	if err := json.Unmarshal(rawBody, &event); err != nil {
+	if !json.Valid(rawBody) {
+		return ApprovalWebhookEvent{}, fmt.Errorf("webhook body is not valid JSON")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(rawBody))
+	decoder.UseNumber()
+	if err := decoder.Decode(&event); err != nil {
 		return ApprovalWebhookEvent{}, fmt.Errorf("webhook body is not valid JSON")
 	}
 	if event.EventID == "" || event.EventID != eventID {

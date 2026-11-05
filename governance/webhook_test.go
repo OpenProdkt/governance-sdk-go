@@ -35,6 +35,29 @@ func signedApprovalWebhook(t *testing.T, eventType ApprovalWebhookEventType, eve
 	return body, headers, time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 }
 
+func TestWebhookPreservesExactNumbersAndRejectsTrailingJSON(t *testing.T) {
+	_, headers, now := signedApprovalWebhook(t, ApprovalWebhookApproved, "obx_1")
+	body := []byte(`{"eventId":"obx_1","eventType":"approval.approved","organizationId":"org_1","aggregateId":"apr_1","data":{"approvalId":"apr_1","n":9007199254740993,"d":0.1000000000000000000001}}`)
+	for _, trailing := range []bool{false, true} {
+		raw := body
+		if trailing {
+			raw = append(append([]byte(nil), body...), []byte(` {}`)...)
+		}
+		mac := hmac.New(sha256.New, []byte("whsec_test"))
+		_, _ = mac.Write([]byte(headers.Get("X-OpenProdkt-Timestamp") + "."))
+		_, _ = mac.Write(raw)
+		headers.Set("X-OpenProdkt-Signature", "v1=sha256="+hex.EncodeToString(mac.Sum(nil)))
+		event, err := VerifyApprovalWebhook(raw, headers, "whsec_test", WebhookVerificationOptions{Now: now})
+		if trailing {
+			if err == nil {
+				t.Fatal("accepted additional JSON value")
+			}
+		} else if err != nil || event.Data["n"] != json.Number("9007199254740993") || event.Data["d"] != json.Number("0.1000000000000000000001") {
+			t.Fatalf("signed metadata lost precision: %v %v", event.Data, err)
+		}
+	}
+}
+
 func TestVerifyApprovalWebhookRawBodyAndLifecycleEvents(t *testing.T) {
 	for _, eventType := range []ApprovalWebhookEventType{
 		ApprovalWebhookPending, ApprovalWebhookApproved, ApprovalWebhookRejected, ApprovalWebhookExpired, ApprovalWebhookRevoked,

@@ -286,6 +286,9 @@ func (c *Client) evaluateAt(ctx context.Context, path string, request EvaluateRe
 		return response, pending
 	}
 	if isOutcome {
+		if status == http.StatusBadRequest && response.Code == "invalid_context" {
+			outcome = "invalid_context"
+		}
 		outcomeErr := EvaluationOutcomeError{HTTPStatus: status, Outcome: outcome, Code: response.Code, Response: response}
 		if status == http.StatusForbidden {
 			terminalReason := response.Reason
@@ -806,6 +809,9 @@ func (c *Client) doJSONWithCredential(ctx context.Context, method, path string, 
 		if err != nil {
 			return fmt.Errorf("marshal request: %w", err)
 		}
+		if err := validateRequestValues(encoded); err != nil {
+			return fmt.Errorf("invalid request values: %w", err)
+		}
 		payload = bytes.NewReader(encoded)
 	}
 
@@ -834,7 +840,9 @@ func (c *Client) doJSONWithCredential(ctx context.Context, method, path string, 
 	if out == nil {
 		return nil
 	}
-	if err := json.NewDecoder(httpResp.Body).Decode(out); err != nil {
+	decoder := json.NewDecoder(httpResp.Body)
+	decoder.UseNumber()
+	if err := decoder.Decode(out); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
@@ -887,7 +895,9 @@ func (c *Client) requestMultipart(ctx context.Context, method, path, contentType
 	}
 
 	var resp map[string]any
-	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+	decoder := json.NewDecoder(httpResp.Body)
+	decoder.UseNumber()
+	if err := decoder.Decode(&resp); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return resp, nil
