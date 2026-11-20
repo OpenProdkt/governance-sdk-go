@@ -184,6 +184,7 @@ func (c *Client) Authorize(ctx context.Context, req AuthorizationRequest) (Decis
 		transport = *req.Transport
 	}
 	wireRequest := EvaluateRequest{
+		Traceparent: req.Traceparent,
 		Version:     "v1",
 		Asset:       EvaluateAsset{ID: assetID, Key: assetKey},
 		OperationID: strings.TrimSpace(req.OperationID),
@@ -191,6 +192,8 @@ func (c *Client) Authorize(ctx context.Context, req AuthorizationRequest) (Decis
 		PayloadHash: strings.TrimSpace(req.PayloadHash),
 		Transport:   transport,
 		Metadata:    sanitizedMetadata,
+
+		DefinitionObservation: req.DefinitionObservation,
 	}
 	if assetIdentity != nil {
 		wireRequest.Asset.Application = assetIdentity.Application
@@ -223,6 +226,15 @@ func (c *Client) evaluateWithCredential(ctx context.Context, request EvaluateReq
 }
 
 func (c *Client) evaluateAt(ctx context.Context, path string, request EvaluateRequest, credential string) (DecisionResponse, error) {
+	if err := validateEvaluationTransport(request.Transport); err != nil {
+		return DecisionResponse{}, err
+	}
+	if err := validateDefinitionObservation(request.DefinitionObservation); err != nil {
+		return DecisionResponse{}, err
+	}
+	if err := validateVaultEvidence(request.VaultRef, request.VaultGap, VaultKindInput); err != nil {
+		return DecisionResponse{}, err
+	}
 	encoded, err := json.Marshal(request)
 	if err != nil {
 		return DecisionResponse{}, fmt.Errorf("marshal evaluation request: %w", err)
@@ -230,6 +242,9 @@ func (c *Client) evaluateAt(ctx context.Context, path string, request EvaluateRe
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(encoded))
 	if err != nil {
 		return DecisionResponse{}, fmt.Errorf("create evaluation request: %w", err)
+	}
+	if validTraceparent(request.Traceparent) {
+		httpReq.Header.Set("traceparent", request.Traceparent)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+credential)
@@ -252,6 +267,7 @@ func (c *Client) evaluateAt(ctx context.Context, path string, request EvaluateRe
 	if err := json.Unmarshal(body, &response); err != nil {
 		return DecisionResponse{}, fmt.Errorf("decode evaluation response: %w", err)
 	}
+	response.Traceparent = httpResp.Header.Get("traceparent")
 	if (status == http.StatusOK || status == http.StatusAccepted) && response.Decision == "" {
 		return DecisionResponse{}, fmt.Errorf("decode evaluation response: decision is required")
 	}
@@ -699,10 +715,18 @@ func (c *Client) ListAuditEvents(ctx context.Context, query AuditQuery) (AuditPa
 // Status is "succeeded", "failed", or "unknown". Use "unknown" whenever execution
 // may have happened but the result is not known.
 type OperationOutcomeRequest struct {
-	OperationID string    `json:"operation_id"`
-	Status      string    `json:"status"`
-	CompletedAt time.Time `json:"completed_at"`
-	ResultHash  string    `json:"result_hash,omitempty"`
+	ExecutionID       *string   `json:"execution_id,omitempty"`
+	Attempt           *int      `json:"attempt,omitempty"`
+	UpstreamRequestID *string   `json:"upstream_request_id,omitempty"`
+	OperationID       string    `json:"operation_id"`
+	Status            string    `json:"status"`
+	CompletedAt       time.Time `json:"completed_at"`
+	ResultHash        string    `json:"result_hash,omitempty"`
+	// VaultRef points at the sealed output record and VaultGap states that it could not
+	// be stored. Both are omitted when nil and a report never carries both. VaultRef.Kind
+	// must be "output". A server may ignore them.
+	VaultRef *VaultRef `json:"vault_ref,omitempty"`
+	VaultGap *VaultGap `json:"vault_gap,omitempty"`
 }
 
 type OperationOutcomeResponse struct {
@@ -761,6 +785,12 @@ func (c *Client) ReportOperationOutcome(ctx context.Context, request OperationOu
 	credential, err := c.authorizationCredential(principal)
 	if err != nil {
 		return OperationOutcomeResponse{}, &InvalidAuthorizationInputError{Message: err.Error()}
+	}
+	if err := validateOutcomeCorrelation(request); err != nil {
+		return OperationOutcomeResponse{}, err
+	}
+	if err := validateVaultEvidence(request.VaultRef, request.VaultGap, VaultKindOutput); err != nil {
+		return OperationOutcomeResponse{}, err
 	}
 	var response OperationOutcomeResponse
 	if err := c.doJSONWithCredential(ctx, http.MethodPost, "/v1/proxy/outcomes", request, &response, credential, true); err != nil {

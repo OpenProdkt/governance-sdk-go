@@ -34,6 +34,8 @@ type DecisionRequest struct {
 }
 
 type AuthorizationRequest struct {
+	// Traceparent is explicit application trace context, sent only as an HTTP header.
+	Traceparent      string `json:"-"`
 	AssetID          string
 	AssetKey         string
 	AssetIdentity    *AssetIdentity
@@ -43,6 +45,9 @@ type AuthorizationRequest struct {
 	PayloadHash      string
 	Metadata         any
 	Transport        *TransportContext
+	// DefinitionObservation is optional, untrusted evidence of the called MCP tool's
+	// definition digest. Nil means unknown and the field is omitted from the request.
+	DefinitionObservation *DefinitionObservation
 }
 
 // ApprovalRetry is the stored approval tuple for an explicit retry of one approved operation.
@@ -101,6 +106,7 @@ type TransportContext struct {
 }
 
 type EvaluateRequest struct {
+	Traceparent string                 `json:"-"`
 	Version     string                 `json:"version"`
 	Asset       EvaluateAsset          `json:"asset"`
 	OperationID string                 `json:"operation_id"`
@@ -108,9 +114,18 @@ type EvaluateRequest struct {
 	PayloadHash string                 `json:"payload_hash,omitempty"`
 	Transport   TransportContext       `json:"transport"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	// DefinitionObservation is optional and omitted when nil. See DefinitionObservation.
+	DefinitionObservation *DefinitionObservation `json:"definition_observation,omitempty"`
+	// VaultRef points at the sealed input record and VaultGap states that it could not
+	// be stored. Both are omitted when nil and a request never carries both. VaultRef.Kind
+	// must be "input". A server may ignore them.
+	VaultRef *VaultRef `json:"vault_ref,omitempty"`
+	VaultGap *VaultGap `json:"vault_gap,omitempty"`
 }
 
 type DecisionResponse struct {
+	// Traceparent is the evaluation response header, never part of the JSON contract.
+	Traceparent       string     `json:"-"`
 	Version           string     `json:"version,omitempty"`
 	OperationID       string     `json:"operation_id,omitempty"`
 	OrganizationID    string     `json:"organizationId,omitempty"`
@@ -176,7 +191,18 @@ const (
 	AssetTypeMCPTool          = "mcp_tool"
 )
 
+type AIInventory struct {
+	IntendedPurpose                      string `json:"intended_purpose,omitempty"`
+	RiskTier                             string `json:"risk_tier,omitempty"`
+	HighRiskCategory                     string `json:"high_risk_category,omitempty"`
+	AccountableOwner                     string `json:"accountable_owner,omitempty"`
+	ImpactAssessmentRef                  string `json:"impact_assessment_ref,omitempty"`
+	FundamentalRightsImpactAssessmentRef string `json:"fundamental_rights_impact_assessment_ref,omitempty"`
+	ModelCardRef                         string `json:"model_card_ref,omitempty"`
+}
+
 type CreateAssetRequest struct {
+	AIInventory   *AIInventory           `json:"ai_inventory,omitempty"`
 	Name          string                 `json:"name"`
 	Type          string                 `json:"type,omitempty"`
 	AssetKey      string                 `json:"assetKey,omitempty"`
@@ -189,6 +215,7 @@ type CreateAssetRequest struct {
 }
 
 type UpdateAssetRequest struct {
+	AIInventory   *AIInventory           `json:"ai_inventory,omitempty"`
 	Name          string                 `json:"name"`
 	AssetKey      string                 `json:"assetKey,omitempty"`
 	Environment   string                 `json:"environment"`

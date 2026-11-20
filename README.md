@@ -5,7 +5,7 @@
 Verify that the matching release has been published before installing this version.
 
 ```bash
-go get github.com/OpenProdkt/governance-sdk-go@v0.8.0
+go get github.com/OpenProdkt/governance-sdk-go@v0.9.0
 ```
 
 ## Supports
@@ -19,7 +19,35 @@ The Go client currently covers:
 - Resources: `ListAssets`, `CreateAsset`, `UpdateAsset`, `DeleteAsset`, `IngestAssetDiscovery`, `ListAssetDiscoveries`, `DeleteAssetDiscovery`, `ListGroups`, `CreateGroup`, `UpdateGroup`, `DeleteGroup`, `ListPolicies`, `CreatePolicy`, `DeletePolicy`
 - Operations: `ListAPIKeys`, `CreateAPIKey`, `RotateAPIKey`, `RevokeAPIKey`, `ListApprovals`, `RejectApproval` (requires a user JWT), `InviteMember`, `UploadEntitlementArtifact`
 
+### Definition observation (optional)
+
+`AuthorizationRequest.DefinitionObservation` and `EvaluateRequest.DefinitionObservation` carry optional, untrusted evidence of the called MCP tool's definition: `{Digest, Canon, ServerVersion}`. `Digest` is `sha256:` plus 64 lowercase hex characters, `Canon` must be `governance.DefinitionObservationCanon` (`mcp-tool-definition:v1`), `ServerVersion` is optional (1 to 128 characters, no control characters), and the encoded object is at most 512 bytes. The SDK sends the digest only (never a description or schema), omits the field when it is nil, never computes a digest, and returns `InvalidAuthorizationInputError` for a malformed value before any request is sent. Because the caller supplies it, the observation is evidence, not proof.
+
 ## Usage
+
+### Vault evidence (optional)
+
+`Guard` can store sealed records of one guarded call in storage you own, using the `governance/vault` writer (or any type with the same `Write` method). It is off unless `GuardOptions.Vault` is set; without it nothing changes.
+
+```go
+result, err := governance.Guard(ctx, client, request, principal, governance.GuardOptions{
+  Vault: &governance.GuardVault{
+    Writer:         writer, // *vault.Writer
+    OrganizationID: "org_123",
+    Input:          map[string]any{"v": 1, "type": "refund.request", "amount_text": "12.50"},
+    Output:         func(value any) any { return map[string]any{"v": 1, "type": "refund.result"} },
+  },
+}, func(ctx context.Context) (Refund, error) { return refund(ctx) })
+```
+
+- `Input` is required. It is sealed before the evaluation, and its pointer is sent as `vault_ref` (kind `input`) on the evaluate request. The guard never sees your arguments, so you decide what the record holds.
+- `Output` is optional. After the callback returns without an error and without a panic, it receives the callback's value and returns the record to store. Returning `nil` skips the write. Its pointer is sent as `vault_ref` (kind `output`) on the outcome report. Without `Output`, the callback's value is never read. If the callback fails or panics, the status is `unknown` as before and no output record is written.
+- By default the guard fails closed: if the input record cannot be stored, `Guard` returns a `*governance.VaultWriteError` before evaluating, calling the callback or reporting. Its text carries only a reason class, never a record, key or storage detail. Set `ContinueWithoutVault` to continue instead; the evaluation then carries `vault_gap` with the reason.
+- If the output record cannot be stored, the callback has already run, so its result is returned unchanged and the report is sent without `vault_ref` and with `vault_gap`. Nothing is replayed.
+- A gap reason is one of `key_service_unavailable`, `storage_unavailable`, `record_too_large` and `write_failed`. A request never carries both `vault_ref` and `vault_gap`; an invalid combination is refused locally with `InvalidAuthorizationInputError` before any request is sent.
+- The vault refuses fractional numbers and records over 8 MiB. Carry a fractional value as text inside a string, as `amount_text` does above.
+- Writes follow the context you pass: a write does not start once it is cancelled. Each record gets a number from the current time in milliseconds, so retries of one operation never share an object key.
+- The control plane may ignore these members, and the pointers are caller evidence, not proof.
 
 ```go
 package main
